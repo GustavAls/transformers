@@ -442,7 +442,7 @@ class MegaModelTester:
     def check_laplace_self_attention(
         self, config, input_ids, token_type_ids, input_mask, sequence_labels, token_labels, choice_labels
     ):
-        config.attention_activation = "laplace"
+        config.attention_activation = "laplace_partial"
         model = MegaModel(config)
         model.to(torch_device)
         model.eval()
