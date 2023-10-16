@@ -1554,10 +1554,14 @@ class Trainer:
             if self.place_model_on_device:
                 self._move_model_to_device(self.model, args.device)
             self.model_wrapped = self.model
-
-        inner_training_loop = find_executable_batch_size(
-            self._inner_training_loop, self._train_batch_size, args.auto_find_batch_size
-        )
+        if args.laplace:
+            inner_training_loop = find_executable_batch_size(
+                self._prepare_inner_training_for_laplace, self._train_batch_size, args.auto_find_batch_size
+            )
+        else:
+            inner_training_loop = find_executable_batch_size(
+                self._inner_training_loop, self._train_batch_size, args.auto_find_batch_size
+            )
         if args.push_to_hub:
             try:
                 # Disable progress bars when uploading models during checkpoints to avoid polluting stdout
@@ -1577,6 +1581,259 @@ class Trainer:
                 trial=trial,
                 ignore_keys_for_eval=ignore_keys_for_eval,
             )
+
+    def _prepare_inner_training_for_laplace(
+            self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
+    ):
+
+        self.accelerator.free_memory()
+        self._train_batch_size = batch_size
+        logger.debug(f"Currently training with a batch size of: {self._train_batch_size}")
+        # Data loader and number of training steps
+        train_dataloader = self.get_train_dataloader()
+
+        # Setting up training control variables:
+        # number of training epochs: num_train_epochs
+        # number of training steps per epoch: num_update_steps_per_epoch
+        # total number of training steps to execute: max_steps
+        total_train_batch_size = self._train_batch_size * args.gradient_accumulation_steps * args.world_size
+
+        len_dataloader = None
+        num_train_tokens = None
+        if has_length(train_dataloader):
+            len_dataloader = len(train_dataloader)
+            num_update_steps_per_epoch = len_dataloader // args.gradient_accumulation_steps
+            num_update_steps_per_epoch = max(num_update_steps_per_epoch, 1)
+            num_examples = self.num_examples(train_dataloader)
+            if args.max_steps > 0:
+                max_steps = args.max_steps
+                num_train_epochs = args.max_steps // num_update_steps_per_epoch + int(
+                    args.max_steps % num_update_steps_per_epoch > 0
+                )
+                # May be slightly incorrect if the last batch in the training dataloader has a smaller size but it's
+                # the best we can do.
+                num_train_samples = args.max_steps * total_train_batch_size
+                if args.include_tokens_per_second:
+                    num_train_tokens = (
+                            self.num_tokens(train_dataloader, args.max_steps) * args.gradient_accumulation_steps
+                    )
+            else:
+                max_steps = math.ceil(args.num_train_epochs * num_update_steps_per_epoch)
+                num_train_epochs = math.ceil(args.num_train_epochs)
+                num_train_samples = self.num_examples(train_dataloader) * args.num_train_epochs
+                if args.include_tokens_per_second:
+                    num_train_tokens = self.num_tokens(train_dataloader) * args.num_train_epochs
+        elif args.max_steps > 0:  # Rely on max_steps when dataloader does not have a working size
+            max_steps = args.max_steps
+            # Setting a very large number of epochs so we go as many times as necessary over the iterator.
+            num_train_epochs = sys.maxsize
+            num_update_steps_per_epoch = max_steps
+            num_examples = total_train_batch_size * args.max_steps
+            num_train_samples = args.max_steps * total_train_batch_size
+            if args.include_tokens_per_second:
+                num_train_tokens = self.num_tokens(train_dataloader,
+                                                   args.max_steps) * args.gradient_accumulation_steps
+        else:
+            raise ValueError(
+                "args.max_steps must be set to a positive value if dataloader does not have a length, was"
+                f" {args.max_steps}"
+            )
+
+        if DebugOption.UNDERFLOW_OVERFLOW in self.args.debug:
+            if self.args.n_gpu > 1:
+                # nn.DataParallel(model) replicates the model, creating new variables and module
+                # references registered here no longer work on other gpus, breaking the module
+                raise ValueError(
+                    "Currently --debug underflow_overflow is not supported under DP. Please use DDP"
+                    " (torch.distributed.launch)."
+                )
+            else:
+                debug_overflow = DebugUnderflowOverflow(self.model)  # noqa
+
+        delay_optimizer_creation = (
+                self.sharded_ddp is not None
+                and self.sharded_ddp != ShardedDDPOption.SIMPLE
+                or is_sagemaker_mp_enabled()
+                or self.fsdp is not None
+                or self.is_fsdp_enabled
+        )
+
+        # We need to reset the scheduler, as its parameters may be different on subsequent calls
+        if self._created_lr_scheduler:
+            self.lr_scheduler = None
+            self._created_lr_scheduler = False
+
+        if self.is_deepspeed_enabled:
+            self.optimizer, self.lr_scheduler = deepspeed_init(self, num_training_steps=max_steps)
+
+        if not delay_optimizer_creation:
+            self.create_optimizer_and_scheduler(num_training_steps=max_steps)
+
+        self.state = TrainerState()
+        self.state.is_hyper_param_search = trial is not None
+
+        # Compute absolute values for logging, eval, and save if given as ratio
+        if args.logging_steps is not None:
+            if args.logging_steps < 1:
+                self.state.logging_steps = math.ceil(max_steps * args.logging_steps)
+            else:
+                self.state.logging_steps = args.logging_steps
+        if args.eval_steps is not None:
+            if args.eval_steps < 1:
+                self.state.eval_steps = math.ceil(max_steps * args.eval_steps)
+            else:
+                self.state.eval_steps = args.eval_steps
+        if args.save_steps is not None:
+            if args.save_steps < 1:
+                self.state.save_steps = math.ceil(max_steps * args.save_steps)
+            else:
+                self.state.save_steps = args.save_steps
+
+        # Activate gradient checkpointing if needed
+        if args.gradient_checkpointing:
+            self.model.gradient_checkpointing_enable()
+
+        model = self._wrap_model(self.model_wrapped)
+
+        if (is_sagemaker_mp_enabled() or self.is_fsdp_enabled) and resume_from_checkpoint is not None:
+            self._load_from_checkpoint(resume_from_checkpoint, model)
+
+        # as the model is wrapped, don't use `accelerator.prepare`
+        # this is for unhandled cases such as
+        # Fairscale Sharded DDP, FSDP-XLA, SageMaker MP/DP, DataParallel, IPEX
+        use_accelerator_prepare = True if model is self.model else False
+
+        if delay_optimizer_creation:
+            if use_accelerator_prepare:
+                self.model = self.accelerator.prepare(self.model)
+            self.create_optimizer_and_scheduler(num_training_steps=max_steps)
+
+        # prepare using `accelerator` prepare
+        if use_accelerator_prepare:
+            self.model.train()
+            if hasattr(self.lr_scheduler, "step"):
+                if self.use_apex:
+                    model = self.accelerator.prepare(self.model)
+                else:
+                    model, self.optimizer = self.accelerator.prepare(self.model, self.optimizer)
+            else:
+                # to handle cases wherein we pass "DummyScheduler" such as when it is specified in DeepSpeed config.
+                model, self.optimizer, self.lr_scheduler = self.accelerator.prepare(
+                    self.model, self.optimizer, self.lr_scheduler
+                )
+
+        if self.is_fsdp_enabled:
+            self.model = model
+
+        # for the rest of this function `model` is the outside model, whether it was wrapped or not
+        if model is not self.model:
+            self.model_wrapped = model
+
+        # backward compatibility
+        if self.is_deepspeed_enabled:
+            self.deepspeed = self.model_wrapped
+
+        # deepspeed ckpt loading
+        if resume_from_checkpoint is not None and self.is_deepspeed_enabled:
+            deepspeed_load_checkpoint(self.model_wrapped, resume_from_checkpoint)
+
+        # Check if saved optimizer or scheduler states exist
+        self._load_optimizer_and_scheduler(resume_from_checkpoint)
+
+        # important: at this point:
+        # self.model         is the Transformers Model
+        # self.model_wrapped is DDP(Transformers Model), Deepspeed(Transformers Model), etc.
+
+        # Train!
+        logger.info("***** Running training *****")
+        logger.info(f"  Num examples = {num_examples:,}")
+        logger.info(f"  Num Epochs = {num_train_epochs:,}")
+        logger.info(f"  Instantaneous batch size per device = {self.args.per_device_train_batch_size:,}")
+        if self.args.per_device_train_batch_size != self._train_batch_size:
+            logger.info(
+                f"  Training with DataParallel so batch size has been adjusted to: {self._train_batch_size:,}")
+        logger.info(
+            f"  Total train batch size (w. parallel, distributed & accumulation) = {total_train_batch_size:,}")
+        logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
+        logger.info(f"  Total optimization steps = {max_steps:,}")
+        logger.info(f"  Number of trainable parameters = {get_model_param_count(model, trainable_only=True):,}")
+
+        self.state.epoch = 0
+        start_time = time.time()
+        epochs_trained = 0
+        steps_trained_in_current_epoch = 0
+        steps_trained_progress_bar = None
+
+        # Check if continuing training from a checkpoint
+        if resume_from_checkpoint is not None and os.path.isfile(
+                os.path.join(resume_from_checkpoint, TRAINER_STATE_NAME)
+        ):
+            self.state = TrainerState.load_from_json(os.path.join(resume_from_checkpoint, TRAINER_STATE_NAME))
+            epochs_trained = self.state.global_step // num_update_steps_per_epoch
+            if not args.ignore_data_skip:
+                steps_trained_in_current_epoch = self.state.global_step % (num_update_steps_per_epoch)
+                steps_trained_in_current_epoch *= args.gradient_accumulation_steps
+            else:
+                steps_trained_in_current_epoch = 0
+
+            logger.info("  Continuing training from checkpoint, will skip to saved global_step")
+            logger.info(f"  Continuing training from epoch {epochs_trained}")
+            logger.info(f"  Continuing training from global step {self.state.global_step}")
+            if not args.ignore_data_skip:
+                logger.info(
+                    f"  Will skip the first {epochs_trained} epochs then the first"
+                    f" {steps_trained_in_current_epoch} batches in the first epoch."
+                )
+
+        # Update the references
+        self.callback_handler.model = self.model
+        self.callback_handler.optimizer = self.optimizer
+        self.callback_handler.lr_scheduler = self.lr_scheduler
+        self.callback_handler.train_dataloader = train_dataloader
+        if self.hp_name is not None and self._trial is not None:
+            # use self._trial because the SigOpt/Optuna hpo only call `_hp_search_setup(trial)` instead of passing trial
+            # parameter to Train when using DDP.
+            self.state.trial_name = self.hp_name(self._trial)
+        if trial is not None:
+            assignments = trial.assignments if self.hp_search_backend == HPSearchBackend.SIGOPT else trial
+            self.state.trial_params = hp_params(assignments)
+        else:
+            self.state.trial_params = None
+        # This should be the same if the state has been saved but in case the training arguments changed, it's safer
+        # to set this after the load.
+        self.state.max_steps = max_steps
+        self.state.num_train_epochs = num_train_epochs
+        self.state.is_local_process_zero = self.is_local_process_zero()
+        self.state.is_world_process_zero = self.is_world_process_zero()
+
+        # tr_loss is a tensor to avoid synchronization of TPUs through .item()
+        tr_loss = torch.tensor(0.0).to(args.device)
+        # _total_loss_scalar is updated everytime .item() has to be called on tr_loss and stores the sum of all losses
+        self._total_loss_scalar = 0.0
+        self._globalstep_last_logged = self.state.global_step
+        model.zero_grad()
+
+        self.control = self.callback_handler.on_train_begin(args, self.state, self.control)
+
+        # Skip the first epochs_trained epochs to get the random state of the dataloader at the right point.
+        if not args.ignore_data_skip:
+            for epoch in range(epochs_trained):
+                sampler = get_dataloader_sampler(train_dataloader)
+                is_random_sampler = isinstance(sampler, RandomSampler)
+                if is_torch_less_than_1_11 or not is_random_sampler:
+                    # We just need to begin an iteration to create the randomization of the sampler.
+                    for _ in train_dataloader:
+                        break
+                else:
+                    # Otherwise we need to call the whooooole sampler cause there is some random operation added
+                    # AT THE VERY END!
+                    sampler = sampler if sampler is not None else []
+                    _ = list(sampler)
+
+        total_batched_samples = 0
+        step = -1
+        self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
+        return train_dataloader, model, self
 
     def _inner_training_loop(
         self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None

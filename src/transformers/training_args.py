@@ -711,7 +711,8 @@ class TrainingArguments:
             )
         },
     )
-
+    laplace: Optional[bool] = field(default=False,
+                                    metadata={"help": 'Wether to prepare for laplace transformation or not'})
     learning_rate: float = field(default=5e-5, metadata={"help": "The initial learning rate for AdamW."})
     weight_decay: float = field(default=0.0, metadata={"help": "Weight decay for AdamW if we apply some."})
     adam_beta1: float = field(default=0.9, metadata={"help": "Beta1 for AdamW optimizer"})
