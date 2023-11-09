@@ -655,6 +655,7 @@ class TrainingArguments:
         },
     )
 
+    get_num_steps_train: bool = field(default=False, metadata={"help": 'Whether to return the number of training steps'})
     do_train: bool = field(default=False, metadata={"help": "Whether to run training."})
     do_eval: bool = field(default=False, metadata={"help": "Whether to run eval on the dev set."})
     do_predict: bool = field(default=False, metadata={"help": "Whether to run predictions on the test set."})

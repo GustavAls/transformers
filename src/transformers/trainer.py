@@ -34,7 +34,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
-
 # Integrations must be imported before ML frameworks:
 # isort: off
 from .integrations import (
@@ -152,7 +151,6 @@ from .utils import (
 )
 from .utils.quantization_config import QuantizationMethod
 
-
 DEFAULT_CALLBACKS = [DefaultFlowCallback]
 DEFAULT_PROGRESS_CALLBACK = ProgressCallback
 
@@ -180,7 +178,6 @@ if is_fairscale_available():
     from fairscale.optim import OSS
     from fairscale.optim.grad_scaler import ShardedGradScaler
 
-
 if is_sagemaker_mp_enabled():
     import smdistributed.modelparallel.torch as smp
     from smdistributed.modelparallel import __version__ as SMP_VERSION
@@ -191,14 +188,11 @@ if is_sagemaker_mp_enabled():
 else:
     IS_SAGEMAKER_MP_POST_1_10 = False
 
-
 if is_safetensors_available():
     import safetensors.torch
 
-
 if is_peft_available():
     from peft import PeftModel
-
 
 if is_accelerate_available():
     from accelerate import Accelerator, skip_first_batches
@@ -216,13 +210,10 @@ if is_accelerate_available():
     if is_deepspeed_available():
         from accelerate.utils import DeepSpeedSchedulerWrapper
 
-
 if TYPE_CHECKING:
     import optuna
 
-
 logger = logging.get_logger(__name__)
-
 
 # Name of the files used for checkpointing
 TRAINING_ARGS_NAME = "training_args.bin"
@@ -320,18 +311,18 @@ class Trainer:
     from .trainer_pt_utils import _get_learning_rate, log_metrics, metrics_format, save_metrics, save_state
 
     def __init__(
-        self,
-        model: Union[PreTrainedModel, nn.Module] = None,
-        args: TrainingArguments = None,
-        data_collator: Optional[DataCollator] = None,
-        train_dataset: Optional[Dataset] = None,
-        eval_dataset: Optional[Union[Dataset, Dict[str, Dataset]]] = None,
-        tokenizer: Optional[PreTrainedTokenizerBase] = None,
-        model_init: Optional[Callable[[], PreTrainedModel]] = None,
-        compute_metrics: Optional[Callable[[EvalPrediction], Dict]] = None,
-        callbacks: Optional[List[TrainerCallback]] = None,
-        optimizers: Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
-        preprocess_logits_for_metrics: Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
+            self,
+            model: Union[PreTrainedModel, nn.Module] = None,
+            args: TrainingArguments = None,
+            data_collator: Optional[DataCollator] = None,
+            train_dataset: Optional[Dataset] = None,
+            eval_dataset: Optional[Union[Dataset, Dict[str, Dataset]]] = None,
+            tokenizer: Optional[PreTrainedTokenizerBase] = None,
+            model_init: Optional[Callable[[], PreTrainedModel]] = None,
+            compute_metrics: Optional[Callable[[EvalPrediction], Dict]] = None,
+            callbacks: Optional[List[TrainerCallback]] = None,
+            optimizers: Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
+            preprocess_logits_for_metrics: Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
     ):
         if args is None:
             output_dir = "tmp_trainer"
@@ -470,7 +461,7 @@ class Trainer:
 
             self.backward_prefetch = BackwardPrefetch.BACKWARD_PRE
             if "backward_prefetch" in self.args.fsdp_config and "backward_post" in self.args.fsdp_config.get(
-                "backward_prefetch", []
+                    "backward_prefetch", []
             ):
                 self.backward_prefetch = BackwardPrefetch.BACKWARD_POST
 
@@ -488,12 +479,12 @@ class Trainer:
         # 5. FSDP - same as MP
         self.place_model_on_device = args.place_model_on_device
         if (
-            self.is_model_parallel
-            or self.is_deepspeed_enabled
-            or ((args.fp16_full_eval or args.bf16_full_eval) and not args.do_train)
-            or (self.sharded_ddp in [ShardedDDPOption.ZERO_DP_2, ShardedDDPOption.ZERO_DP_3])
-            or (self.fsdp is not None)
-            or self.is_fsdp_enabled
+                self.is_model_parallel
+                or self.is_deepspeed_enabled
+                or ((args.fp16_full_eval or args.bf16_full_eval) and not args.do_train)
+                or (self.sharded_ddp in [ShardedDDPOption.ZERO_DP_2, ShardedDDPOption.ZERO_DP_3])
+                or (self.fsdp is not None)
+                or self.is_fsdp_enabled
         ):
             self.place_model_on_device = False
 
@@ -505,8 +496,8 @@ class Trainer:
 
         # Bnb Quantized models doesn't support `.to` operation.
         if (
-            self.place_model_on_device
-            and not getattr(model, "quantization_method", None) == QuantizationMethod.BITS_AND_BYTES
+                self.place_model_on_device
+                and not getattr(model, "quantization_method", None) == QuantizationMethod.BITS_AND_BYTES
         ):
             self._move_model_to_device(model, args.device)
 
@@ -542,7 +533,7 @@ class Trainer:
                     " `model.to(xm.xla_device())` is performed before the optimizer creation in your script."
                 )
         if ((self.sharded_ddp is not None) or self.is_deepspeed_enabled or (self.fsdp is not None)) and (
-            self.optimizer is not None or self.lr_scheduler is not None
+                self.optimizer is not None or self.lr_scheduler is not None
         ):
             raise RuntimeError(
                 "Passing `optimizers` is not allowed if Fairscale, Deepspeed or PyTorch FSDP is enabled."
@@ -578,9 +569,9 @@ class Trainer:
             )
 
         if (
-            train_dataset is not None
-            and isinstance(train_dataset, torch.utils.data.IterableDataset)
-            and args.group_by_length
+                train_dataset is not None
+                and isinstance(train_dataset, torch.utils.data.IterableDataset)
+                and args.group_by_length
         ):
             raise ValueError("the `--group_by_length` option is only available for `Dataset`, not `IterableDataset")
 
@@ -650,10 +641,10 @@ class Trainer:
 
         # FP16 + model parallelism in SageMaker: gradient clipping does not work for now so we raise a helpful error.
         if (
-            is_sagemaker_mp_enabled()
-            and self.use_cuda_amp
-            and args.max_grad_norm is not None
-            and args.max_grad_norm > 0
+                is_sagemaker_mp_enabled()
+                and self.use_cuda_amp
+                and args.max_grad_norm is not None
+                and args.max_grad_norm > 0
         ):
             raise ValueError(
                 "SageMaker Model Parallelism in mixed precision mode does not support gradient clipping yet. Pass "
@@ -772,7 +763,7 @@ class Trainer:
             return dataset.remove_columns(ignored_columns)
 
     def _get_collator_with_removed_columns(
-        self, data_collator: Callable, description: Optional[str] = None
+            self, data_collator: Callable, description: Optional[str] = None
     ) -> Callable:
         """Wrap the data collator in a callable removing unused columns."""
         if not self.args.remove_unused_columns:
@@ -997,10 +988,10 @@ class Trainer:
                     for module in opt_model.modules():
                         if isinstance(module, nn.Embedding):
                             skipped += sum({p.data_ptr(): p.numel() for p in module.parameters()}.values())
-                            logger.info(f"skipped {module}: {skipped/2**20}M params")
+                            logger.info(f"skipped {module}: {skipped / 2 ** 20}M params")
                             manager.register_module_override(module, "weight", {"optim_bits": 32})
                             logger.debug(f"bitsandbytes: will optimize {module} in fp32")
-                    logger.info(f"skipped: {skipped/2**20}M params")
+                    logger.info(f"skipped: {skipped / 2 ** 20}M params")
 
         if is_sagemaker_mp_enabled():
             self.optimizer = smp.DistributedOptimizer(self.optimizer)
@@ -1095,7 +1086,7 @@ class Trainer:
             except ImportError:
                 raise ValueError("Trainer tried to instantiate bnb optimizer but bnb is not installed!")
             if is_bitsandbytes_available() and version.parse(
-                importlib.metadata.version("bitsandbytes")
+                    importlib.metadata.version("bitsandbytes")
             ) < version.parse("0.41.1"):
                 logger.warning(
                     "You are using 8-bit optimizers with a version of `bitsandbytes` < 0.41.1. "
@@ -1475,11 +1466,11 @@ class Trainer:
         return model
 
     def train(
-        self,
-        resume_from_checkpoint: Optional[Union[str, bool]] = None,
-        trial: Union["optuna.Trial", Dict[str, Any]] = None,
-        ignore_keys_for_eval: Optional[List[str]] = None,
-        **kwargs,
+            self,
+            resume_from_checkpoint: Optional[Union[str, bool]] = None,
+            trial: Union["optuna.Trial", Dict[str, Any]] = None,
+            ignore_keys_for_eval: Optional[List[str]] = None,
+            **kwargs,
     ):
         """
         Main training entry point.
@@ -1542,10 +1533,10 @@ class Trainer:
                 raise ValueError(f"No valid checkpoint found in output directory ({args.output_dir})")
 
         if (
-            resume_from_checkpoint is not None
-            and not is_sagemaker_mp_enabled()
-            and not self.is_deepspeed_enabled
-            and not self.is_fsdp_enabled
+                resume_from_checkpoint is not None
+                and not is_sagemaker_mp_enabled()
+                and not self.is_deepspeed_enabled
+                and not self.is_fsdp_enabled
         ):
             self._load_from_checkpoint(resume_from_checkpoint)
 
@@ -1582,6 +1573,17 @@ class Trainer:
                 ignore_keys_for_eval=ignore_keys_for_eval,
             )
 
+    def return_data_size(self,
+                         resume_from_checkpoint: Optional[Union[str, bool]] = None,
+                         trial: Union["optuna.Trial", Dict[str, Any]] = None,
+                         ignore_keys_for_eval: Optional[List[str]] = None,
+                         **kwargs, ):
+
+        setattr(self.args, 'return_datasize', True)
+        results = self.train(resume_from_checkpoint, trial, ignore_keys_for_eval, **kwargs)
+        setattr(self.args, 'return_datasize', False)
+        return results
+
     def _prepare_inner_training_for_laplace(
             self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
     ):
@@ -1605,6 +1607,11 @@ class Trainer:
             num_update_steps_per_epoch = len_dataloader // args.gradient_accumulation_steps
             num_update_steps_per_epoch = max(num_update_steps_per_epoch, 1)
             num_examples = self.num_examples(train_dataloader)
+
+            if getattr(args, 'return_datasize', False):
+                return {'len_dataloader': len_dataloader, 'num_update_steps_per_epoch': num_update_steps_per_epoch,
+                        'num_examples': num_examples}
+
             if args.max_steps > 0:
                 max_steps = args.max_steps
                 num_train_epochs = args.max_steps // num_update_steps_per_epoch + int(
@@ -1836,7 +1843,7 @@ class Trainer:
         return train_dataloader, model, self
 
     def _inner_training_loop(
-        self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
+            self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
     ):
         self.accelerator.free_memory()
         self._train_batch_size = batch_size
@@ -1857,6 +1864,9 @@ class Trainer:
             num_update_steps_per_epoch = len_dataloader // args.gradient_accumulation_steps
             num_update_steps_per_epoch = max(num_update_steps_per_epoch, 1)
             num_examples = self.num_examples(train_dataloader)
+            if getattr(args, 'return_datasize', False):
+                return {'len_dataloader': len_dataloader, 'num_update_steps_per_epoch': num_update_steps_per_epoch,
+                        'num_examples': num_examples}
             if args.max_steps > 0:
                 max_steps = args.max_steps
                 num_train_epochs = args.max_steps // num_update_steps_per_epoch + int(
@@ -1867,7 +1877,7 @@ class Trainer:
                 num_train_samples = args.max_steps * total_train_batch_size
                 if args.include_tokens_per_second:
                     num_train_tokens = (
-                        self.num_tokens(train_dataloader, args.max_steps) * args.gradient_accumulation_steps
+                            self.num_tokens(train_dataloader, args.max_steps) * args.gradient_accumulation_steps
                     )
             else:
                 max_steps = math.ceil(args.num_train_epochs * num_update_steps_per_epoch)
@@ -1902,11 +1912,11 @@ class Trainer:
                 debug_overflow = DebugUnderflowOverflow(self.model)  # noqa
 
         delay_optimizer_creation = (
-            self.sharded_ddp is not None
-            and self.sharded_ddp != ShardedDDPOption.SIMPLE
-            or is_sagemaker_mp_enabled()
-            or self.fsdp is not None
-            or self.is_fsdp_enabled
+                self.sharded_ddp is not None
+                and self.sharded_ddp != ShardedDDPOption.SIMPLE
+                or is_sagemaker_mp_enabled()
+                or self.fsdp is not None
+                or self.is_fsdp_enabled
         )
 
         # We need to reset the scheduler, as its parameters may be different on subsequent calls
@@ -2015,7 +2025,7 @@ class Trainer:
 
         # Check if continuing training from a checkpoint
         if resume_from_checkpoint is not None and os.path.isfile(
-            os.path.join(resume_from_checkpoint, TRAINER_STATE_NAME)
+                os.path.join(resume_from_checkpoint, TRAINER_STATE_NAME)
         ):
             self.state = TrainerState.load_from_json(os.path.join(resume_from_checkpoint, TRAINER_STATE_NAME))
             epochs_trained = self.state.global_step // num_update_steps_per_epoch
@@ -2131,9 +2141,9 @@ class Trainer:
                     tr_loss_step = self.training_step(model, inputs)
 
                 if (
-                    args.logging_nan_inf_filter
-                    and not is_torch_tpu_available()
-                    and (torch.isnan(tr_loss_step) or torch.isinf(tr_loss_step))
+                        args.logging_nan_inf_filter
+                        and not is_torch_tpu_available()
+                        and (torch.isnan(tr_loss_step) or torch.isinf(tr_loss_step))
                 ):
                     # if loss is nan or inf simply add the average of previous logged losses
                     tr_loss += tr_loss / (1 + self.state.global_step - self._globalstep_last_logged)
@@ -2143,19 +2153,19 @@ class Trainer:
                 self.current_flos += float(self.floating_point_ops(inputs))
 
                 is_last_step_and_steps_less_than_grad_acc = (
-                    steps_in_epoch <= args.gradient_accumulation_steps and (step + 1) == steps_in_epoch
+                        steps_in_epoch <= args.gradient_accumulation_steps and (step + 1) == steps_in_epoch
                 )
 
                 if (
-                    total_batched_samples % args.gradient_accumulation_steps == 0
-                    or
-                    # last step in epoch but step is always smaller than gradient_accumulation_steps
-                    is_last_step_and_steps_less_than_grad_acc
+                        total_batched_samples % args.gradient_accumulation_steps == 0
+                        or
+                        # last step in epoch but step is always smaller than gradient_accumulation_steps
+                        is_last_step_and_steps_less_than_grad_acc
                 ):
                     # the `or` condition of `is_last_step_and_steps_less_than_grad_acc` is not covered
                     # in accelerate. So, explicitly enable sync gradients to True in that case.
                     if is_last_step_and_steps_less_than_grad_acc or (
-                        version.parse(accelerate_version) <= version.parse("0.20.3")
+                            version.parse(accelerate_version) <= version.parse("0.20.3")
                     ):
                         self.accelerator.gradient_state._set_sync_gradients(True)
 
@@ -2336,15 +2346,15 @@ class Trainer:
         safe_weights_index_file = os.path.join(resume_from_checkpoint, SAFE_WEIGHTS_INDEX_NAME)
 
         if not any(
-            os.path.isfile(f)
-            for f in [
-                weights_file,
-                safe_weights_file,
-                weights_index_file,
-                safe_weights_index_file,
-                adapter_weights_file,
-                adapter_safe_weights_file,
-            ]
+                os.path.isfile(f)
+                for f in [
+                    weights_file,
+                    safe_weights_file,
+                    weights_index_file,
+                    safe_weights_index_file,
+                    adapter_weights_file,
+                    adapter_safe_weights_file,
+                ]
         ):
             raise ValueError(f"Can't find a valid checkpoint at {resume_from_checkpoint}")
 
@@ -2431,10 +2441,10 @@ class Trainer:
         if self.is_deepspeed_enabled:
             deepspeed_load_checkpoint(self.model_wrapped, self.state.best_model_checkpoint)
         elif (
-            os.path.exists(best_model_path)
-            or os.path.exists(best_safe_model_path)
-            or os.path.exists(best_adapter_model_path)
-            or os.path.exists(best_safe_adapter_model_path)
+                os.path.exists(best_model_path)
+                or os.path.exists(best_safe_model_path)
+                or os.path.exists(best_adapter_model_path)
+                or os.path.exists(best_safe_adapter_model_path)
         ):
             has_been_loaded = True
             if is_sagemaker_mp_enabled():
@@ -2509,7 +2519,7 @@ class Trainer:
     def _issue_warnings_after_load(self, load_result):
         if len(load_result.missing_keys) != 0:
             if self.model._keys_to_ignore_on_save is not None and set(load_result.missing_keys) == set(
-                self.model._keys_to_ignore_on_save
+                    self.model._keys_to_ignore_on_save
             ):
                 self.model.tie_weights()
             else:
@@ -2668,9 +2678,9 @@ class Trainer:
             self.lr_scheduler, DeepSpeedSchedulerWrapper
         )
         if (
-            self.args.should_save
-            and (not self.is_deepspeed_enabled or is_deepspeed_custom_scheduler)
-            and not is_torch_tpu_available()
+                self.args.should_save
+                and (not self.is_deepspeed_enabled or is_deepspeed_custom_scheduler)
+                and not is_torch_tpu_available()
         ):
             with warnings.catch_warnings(record=True) as caught_warnings:
                 torch.save(self.lr_scheduler.state_dict(), os.path.join(output_dir, SCHEDULER_NAME))
@@ -2687,9 +2697,9 @@ class Trainer:
 
             operator = np.greater if self.args.greater_is_better else np.less
             if (
-                self.state.best_metric is None
-                or self.state.best_model_checkpoint is None
-                or operator(metric_value, self.state.best_metric)
+                    self.state.best_metric is None
+                    or self.state.best_model_checkpoint is None
+                    or operator(metric_value, self.state.best_metric)
             ):
                 self.state.best_metric = metric_value
                 self.state.best_model_checkpoint = output_dir
@@ -2747,8 +2757,8 @@ class Trainer:
             glob.glob(os.path.join(checkpoint, OPTIMIZER_NAME) + "_*")
             if is_sagemaker_mp_enabled()
             else (
-                os.path.isfile(os.path.join(checkpoint, OPTIMIZER_NAME))
-                or os.path.isfile(os.path.join(checkpoint, OPTIMIZER_NAME_BIN))
+                    os.path.isfile(os.path.join(checkpoint, OPTIMIZER_NAME))
+                    or os.path.isfile(os.path.join(checkpoint, OPTIMIZER_NAME_BIN))
             )
         )
         if checkpoint_file_exists and os.path.isfile(os.path.join(checkpoint, SCHEDULER_NAME)):
@@ -2816,14 +2826,14 @@ class Trainer:
                     self.scaler.load_state_dict(torch.load(os.path.join(checkpoint, SCALER_NAME)))
 
     def hyperparameter_search(
-        self,
-        hp_space: Optional[Callable[["optuna.Trial"], Dict[str, float]]] = None,
-        compute_objective: Optional[Callable[[Dict[str, float]], float]] = None,
-        n_trials: int = 20,
-        direction: str = "minimize",
-        backend: Optional[Union["str", HPSearchBackend]] = None,
-        hp_name: Optional[Callable[["optuna.Trial"], str]] = None,
-        **kwargs,
+            self,
+            hp_space: Optional[Callable[["optuna.Trial"], Dict[str, float]]] = None,
+            compute_objective: Optional[Callable[[Dict[str, float]], float]] = None,
+            n_trials: int = 20,
+            direction: str = "minimize",
+            backend: Optional[Union["str", HPSearchBackend]] = None,
+            hp_name: Optional[Callable[["optuna.Trial"], str]] = None,
+            **kwargs,
     ) -> BestRun:
         """
         Launch an hyperparameter search using `optuna` or `Ray Tune` or `SigOpt`. The optimized quantity is determined
@@ -3081,10 +3091,10 @@ class Trainer:
                 # 'user_content.pt' indicates model state_dict saved with smp >= 1.10
                 Path(os.path.join(output_dir, "user_content.pt")).touch()
         elif (
-            ShardedDDPOption.ZERO_DP_2 in self.args.sharded_ddp
-            or ShardedDDPOption.ZERO_DP_3 in self.args.sharded_ddp
-            or self.fsdp is not None
-            or self.is_fsdp_enabled
+                ShardedDDPOption.ZERO_DP_2 in self.args.sharded_ddp
+                or ShardedDDPOption.ZERO_DP_3 in self.args.sharded_ddp
+                or self.fsdp is not None
+                or self.is_fsdp_enabled
         ):
             state_dict = self.model.state_dict() if not self.is_fsdp_enabled else {}
             if self.args.should_save:
@@ -3193,7 +3203,7 @@ class Trainer:
             self.current_flos = 0
 
     def _sorted_checkpoints(
-        self, output_dir=None, checkpoint_prefix=PREFIX_CHECKPOINT_DIR, use_mtime=False
+            self, output_dir=None, checkpoint_prefix=PREFIX_CHECKPOINT_DIR, use_mtime=False
     ) -> List[str]:
         ordering_and_checkpoint_path = []
 
@@ -3229,9 +3239,9 @@ class Trainer:
         # we don't do to allow resuming.
         save_total_limit = self.args.save_total_limit
         if (
-            self.state.best_model_checkpoint is not None
-            and self.args.save_total_limit == 1
-            and checkpoints_sorted[-1] != self.state.best_model_checkpoint
+                self.state.best_model_checkpoint is not None
+                and self.args.save_total_limit == 1
+                and checkpoints_sorted[-1] != self.state.best_model_checkpoint
         ):
             save_total_limit = 2
 
@@ -3242,10 +3252,10 @@ class Trainer:
             shutil.rmtree(checkpoint, ignore_errors=True)
 
     def evaluate(
-        self,
-        eval_dataset: Optional[Dataset] = None,
-        ignore_keys: Optional[List[str]] = None,
-        metric_key_prefix: str = "eval",
+            self,
+            eval_dataset: Optional[Dataset] = None,
+            ignore_keys: Optional[List[str]] = None,
+            metric_key_prefix: str = "eval",
     ) -> Dict[str, float]:
         """
         Run evaluation and returns metrics.
@@ -3313,7 +3323,7 @@ class Trainer:
         return output.metrics
 
     def predict(
-        self, test_dataset: Dataset, ignore_keys: Optional[List[str]] = None, metric_key_prefix: str = "test"
+            self, test_dataset: Dataset, ignore_keys: Optional[List[str]] = None, metric_key_prefix: str = "test"
     ) -> PredictionOutput:
         """
         Run prediction and returns predictions and potential metrics.
@@ -3375,12 +3385,12 @@ class Trainer:
         return PredictionOutput(predictions=output.predictions, label_ids=output.label_ids, metrics=output.metrics)
 
     def evaluation_loop(
-        self,
-        dataloader: DataLoader,
-        description: str,
-        prediction_loss_only: Optional[bool] = None,
-        ignore_keys: Optional[List[str]] = None,
-        metric_key_prefix: str = "eval",
+            self,
+            dataloader: DataLoader,
+            description: str,
+            prediction_loss_only: Optional[bool] = None,
+            ignore_keys: Optional[List[str]] = None,
+            metric_key_prefix: str = "eval",
     ) -> EvalLoopOutput:
         """
         Prediction/evaluation loop, shared by `Trainer.evaluate()` and `Trainer.predict()`.
@@ -3503,9 +3513,9 @@ class Trainer:
 
             # Gather all tensors and put them back on the CPU if we have done enough accumulation steps.
             if (
-                args.eval_accumulation_steps is not None
-                and (step + 1) % args.eval_accumulation_steps == 0
-                and self.accelerator.sync_gradients
+                    args.eval_accumulation_steps is not None
+                    and (step + 1) % args.eval_accumulation_steps == 0
+                    and self.accelerator.sync_gradients
             ):
                 if losses_host is not None:
                     losses = nested_numpify(losses_host)
@@ -3604,17 +3614,17 @@ class Trainer:
         elif is_sagemaker_mp_enabled():
             tensors = smp_gather(tensors)
         elif (self.args.distributed_state is not None and self.args.distributed_state.distributed_type != "NO") or (
-            self.args.distributed_state is None and self.args.local_rank != -1
+                self.args.distributed_state is None and self.args.local_rank != -1
         ):
             tensors = distributed_concat(tensors)
         return tensors
 
     def prediction_step(
-        self,
-        model: nn.Module,
-        inputs: Dict[str, Union[torch.Tensor, Any]],
-        prediction_loss_only: bool,
-        ignore_keys: Optional[List[str]] = None,
+            self,
+            model: nn.Module,
+            inputs: Dict[str, Union[torch.Tensor, Any]],
+            prediction_loss_only: bool,
+            ignore_keys: Optional[List[str]] = None,
     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         """
         Perform an evaluation step on `model` using `inputs`.
@@ -3794,8 +3804,8 @@ class Trainer:
 
         # By default, ignore the checkpoint folders
         if (
-            not os.path.exists(os.path.join(self.args.output_dir, ".gitignore"))
-            and self.args.hub_strategy != HubStrategy.ALL_CHECKPOINTS
+                not os.path.exists(os.path.join(self.args.output_dir, ".gitignore"))
+                and self.args.hub_strategy != HubStrategy.ALL_CHECKPOINTS
         ):
             with open(os.path.join(self.args.output_dir, ".gitignore"), "w", encoding="utf-8") as writer:
                 writer.writelines(["checkpoint-*/"])
@@ -3807,16 +3817,16 @@ class Trainer:
         self.push_in_progress = None
 
     def create_model_card(
-        self,
-        language: Optional[str] = None,
-        license: Optional[str] = None,
-        tags: Union[str, List[str], None] = None,
-        model_name: Optional[str] = None,
-        finetuned_from: Optional[str] = None,
-        tasks: Union[str, List[str], None] = None,
-        dataset_tags: Union[str, List[str], None] = None,
-        dataset: Union[str, List[str], None] = None,
-        dataset_args: Union[str, List[str], None] = None,
+            self,
+            language: Optional[str] = None,
+            license: Optional[str] = None,
+            tags: Union[str, List[str], None] = None,
+            model_name: Optional[str] = None,
+            finetuned_from: Optional[str] = None,
+            tasks: Union[str, List[str], None] = None,
+            dataset_tags: Union[str, List[str], None] = None,
+            dataset: Union[str, List[str], None] = None,
+            dataset_args: Union[str, List[str], None] = None,
     ):
         """
         Creates a draft of a model card using the information available to the `Trainer`.
@@ -3980,12 +3990,12 @@ class Trainer:
     #
 
     def prediction_loop(
-        self,
-        dataloader: DataLoader,
-        description: str,
-        prediction_loss_only: Optional[bool] = None,
-        ignore_keys: Optional[List[str]] = None,
-        metric_key_prefix: str = "eval",
+            self,
+            dataloader: DataLoader,
+            description: str,
+            prediction_loss_only: Optional[bool] = None,
+            ignore_keys: Optional[List[str]] = None,
+            metric_key_prefix: str = "eval",
     ) -> EvalLoopOutput:
         """
         Prediction/evaluation loop, shared by `Trainer.evaluate()` and `Trainer.predict()`.
